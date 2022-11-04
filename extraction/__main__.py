@@ -49,6 +49,17 @@ AREAS = (
     ),
 )
 
+CSV_FIELDS = [
+    "zip_filename",
+    "pdf_filename",
+    "timestamp",
+    "status",
+    "company_number",
+    "community_interest_statement",
+    "activities",
+    "community_benefit",
+]
+
 
 def get_cic_data(filename):
     cic36_page = None
@@ -74,93 +85,103 @@ def get_cic_data(filename):
     return results
 
 
+def write_results(results, filename):
+    with open(filename, "a", newline="") as output:
+        writer = csv.DictWriter(
+            output,
+            fieldnames=CSV_FIELDS,
+        )
+        writer.writerow(results)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input", help="Input ZIP files")
     parser.add_argument("output", help="Output CSV file")
+    parser.add_argument(
+        "--test",
+        help="Number of files to run on (if 0 or none then will use all files)",
+        default=None,
+        type=int,
+    )
     args = parser.parse_args()
 
-    files = glob.iglob(args.input)
+    files = glob.glob(args.input)
 
-    output_mode = "w"
-    if os.path.exists(args.output):
-        output_mode = "a"
+    print(f"Found {len(files)} files")
 
-    with open(args.output, output_mode, newline="") as output:
-        writer = csv.DictWriter(
-            output,
-            fieldnames=[
-                "zip_filename",
-                "pdf_filename",
-                "timestamp",
-                "status",
-                "company_number",
-                "community_interest_statement",
-                "activities",
-                "community_benefit",
-            ],
-        )
-        if output_mode == "w":
+    if not os.path.exists(args.output):
+        with open(args.output, output_mode, newline="") as output:
+            writer = csv.DictWriter(
+                output,
+                fieldnames=CSV_FIELDS,
+            )
             writer.writeheader()
-        timestamp = datetime.now().isoformat()
-        for file in files:
 
-            if file.endswith(".pdf"):
+    count_files = 0
 
-                result = {
-                    "zip_filename": None,
-                    "pdf_filename": file,
-                    "timestamp": timestamp,
-                    "status": "no data found",
-                }
-                company_number_search = COMPANY_NUMBER_REGEX.search(
-                    result["pdf_filename"]
-                )
-                if company_number_search:
-                    result["company_number"] = company_number_search.group(0)
-                result.update(get_cic_data(file))
-                if (
-                    result.get("community_interest_statement")
-                    or result.get("activities")
-                    or result.get("community_benefit")
-                ):
-                    result["status"] = "success"
+    timestamp = datetime.now().isoformat()
+    for file in files:
 
-                writer.writerow(result)
-                continue
+        if args.test and count_files >= args.test:
+            break
 
-            try:
-                with ZipFile(file, mode="r") as zip:
-                    for index, name in tqdm(enumerate(zip.namelist())):
-                        if not name.endswith(".pdf"):
-                            continue
+        if file.endswith(".pdf"):
 
-                        result = {
-                            "zip_filename": file,
-                            "pdf_filename": name,
-                            "timestamp": timestamp,
-                            "status": "no data found",
-                        }
-                        company_number_search = COMPANY_NUMBER_REGEX.search(
-                            result["pdf_filename"]
-                        )
-                        if company_number_search:
-                            result["company_number"] = company_number_search.group(0)
-                        with zip.open(name) as pdf:
-                            result.update(get_cic_data(pdf))
-                        if (
-                            result.get("community_interest_statement")
-                            or result.get("activities")
-                            or result.get("community_benefit")
-                        ):
-                            result["status"] = "success"
+            result = {
+                "zip_filename": None,
+                "pdf_filename": file,
+                "timestamp": timestamp,
+                "status": "no data found",
+            }
+            company_number_search = COMPANY_NUMBER_REGEX.search(result["pdf_filename"])
+            if company_number_search:
+                result["company_number"] = company_number_search.group(0)
+            result.update(get_cic_data(file))
+            if (
+                result.get("community_interest_statement")
+                or result.get("activities")
+                or result.get("community_benefit")
+            ):
+                result["status"] = "success"
 
-                        writer.writerow(result)
+            write_results(result, args.output)
+            count_files += 1
+            continue
 
-                        if index > 10:
-                            break
-            except BadZipFile:
-                print(f"Bad ZIP file: {file}")
+        try:
+            with ZipFile(file, mode="r") as zip:
+                for index, name in tqdm(enumerate(zip.namelist())):
+                    if not name.endswith(".pdf"):
+                        continue
+
+                    result = {
+                        "zip_filename": file,
+                        "pdf_filename": name,
+                        "timestamp": timestamp,
+                        "status": "no data found",
+                    }
+                    company_number_search = COMPANY_NUMBER_REGEX.search(
+                        result["pdf_filename"]
+                    )
+                    if company_number_search:
+                        result["company_number"] = company_number_search.group(0)
+                    with zip.open(name) as pdf:
+                        result.update(get_cic_data(pdf))
+                    if (
+                        result.get("community_interest_statement")
+                        or result.get("activities")
+                        or result.get("community_benefit")
+                    ):
+                        result["status"] = "success"
+
+                    write_results(result, args.output)
+                    count_files += 1
+
+                    if args.test and count_files >= args.test:
+                        break
+        except BadZipFile:
+            print(f"Bad ZIP file: {file}")
 
 
 if __name__ == "__main__":
