@@ -69,10 +69,15 @@ def get_cic_data(filename):
             page_text = page.extract_text()
             if SEARCH_REGEX.search(page_text):
                 cic36_page = page.page_number
+                break
 
         for area, bbox, offset in AREAS:
             if cic36_page:
-                page = pdf.pages[cic36_page + offset - 1]
+                page_number = cic36_page + offset - 1
+                try:
+                    page = pdf.pages[page_number]
+                except IndexError:
+                    continue
                 crop = page.crop(
                     (
                         bbox[0] * page.width,  # x0,
@@ -82,6 +87,7 @@ def get_cic_data(filename):
                     )
                 )
                 results[area] = " ".join(crop.extract_text().split("\n"))
+
     return results
 
 
@@ -104,6 +110,11 @@ def main():
         default=None,
         type=int,
     )
+    parser.add_argument(
+        "--skip-existing",
+        help="Skip existing files",
+        action=argparse.BooleanOptionalAction,
+    )
     args = parser.parse_args()
 
     files = glob.glob(args.input)
@@ -118,6 +129,13 @@ def main():
             )
             writer.writeheader()
 
+    if args.skip_existing:
+        existing_files = set()
+        with open(args.output, "r", newline="") as output:
+            reader = csv.DictReader(output)
+            for row in reader:
+                existing_files.add(os.path.abspath(row["pdf_filename"]))
+
     count_files = 0
 
     timestamp = datetime.now().isoformat()
@@ -127,6 +145,9 @@ def main():
             break
 
         if file.endswith(".pdf"):
+
+            if args.skip_existing and os.path.abspath(file) in existing_files:
+                continue
 
             result = {
                 "zip_filename": None,
@@ -153,6 +174,9 @@ def main():
             with ZipFile(file, mode="r") as zip:
                 for index, name in tqdm(enumerate(zip.namelist())):
                     if not name.endswith(".pdf"):
+                        continue
+
+                    if args.skip_existing and os.path.abspath(name) in existing_files:
                         continue
 
                     result = {
