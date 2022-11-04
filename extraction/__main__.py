@@ -111,7 +111,7 @@ def main():
     print(f"Found {len(files)} files")
 
     if not os.path.exists(args.output):
-        with open(args.output, output_mode, newline="") as output:
+        with open(args.output, "w", newline="") as output:
             writer = csv.DictWriter(
                 output,
                 fieldnames=CSV_FIELDS,
